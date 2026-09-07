@@ -24,6 +24,8 @@ jobs:
           python-version: '3.13'
       - name: Install PlatformIO
         run: pip install platformio
+      - name: Apply source compatibility fix
+        run: sed -i 's/\bLINK_MAX\b/UART_LINK_MAX/g' src/repeater_v2.cpp
       - name: Build XIAO ESP32-C3 firmware
         run: pio run -e seeed_xiao_esp32c3
       - name: Build Adafruit ESP32-S2 Feather firmware
