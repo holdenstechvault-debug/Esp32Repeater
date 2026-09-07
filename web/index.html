@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Holden LoRa Repeater Flasher</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <style>
+    :root { color-scheme: dark; --esp-tools-button-color:#6d7dff; --esp-tools-button-text-color:#fff; --esp-tools-button-border-radius:12px; }
+    body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#090f1d;color:#eef3ff;margin:0;padding:24px}
+    main{max-width:760px;margin:auto}.card{background:#141c31;border:1px solid #293553;border-radius:18px;padding:22px;margin:18px 0}
+    h1{font-size:2.1rem;margin-bottom:.2rem}h2{margin-top:0}.muted{color:#aab6d6}.warn{color:#ffd28a}
+    code{background:#0b1222;padding:3px 6px;border-radius:6px}li{margin:.55rem 0}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Holden LoRa Repeater</h1>
+  <p class="muted">Browser flasher for the grandparents' XIAO ESP32-C3 + DX-LR20 repeater.</p>
+
+  <section class="card">
+    <h2>Flash firmware</h2>
+    <p>Plug the XIAO ESP32-C3 into USB, use Chrome or Edge, then click Install.</p>
+    <esp-web-install-button manifest="manifest.json">
+      <button slot="activate">Install repeater firmware</button>
+      <span slot="unsupported">Use desktop Chrome or Edge with Web Serial support.</span>
+      <span slot="not-allowed">This page must be opened over HTTPS or localhost.</span>
+    </esp-web-install-button>
+  </section>
+
+  <section class="card">
+    <h2>After flashing</h2>
+    <ol>
+      <li>Connect the DX-LR20 and its antenna <strong>before transmitting</strong>.</li>
+      <li>Power/reboot the XIAO.</li>
+      <li>Join Wi-Fi <code>HOLDEN-LORA-xxxxxx</code> with password <code>repeater-setup</code>.</li>
+      <li>Open <code>http://192.168.4.1</code>.</li>
+      <li>Copy the generated 256-bit key and use that same key on the home and girlfriend endpoints.</li>
+    </ol>
+    <p class="warn">The radio pin assignments are editable in the setup page, so the firmware does not permanently lock you to one adapter-board header mapping.</p>
+  </section>
+</main>
+</body>
+</html>
