@@ -13,7 +13,8 @@ static constexpr uint8_t LINK_MAGIC1 = 0x5A;
 static constexpr uint8_t LINK_DATA = 0x01;
 static constexpr uint8_t LINK_TX_BEGIN = 0x02;
 static constexpr uint8_t LINK_TX_END = 0x03;
-static constexpr size_t LINK_MAX = 220;
+static constexpr uint8_t LINK_HEARTBEAT = 0x04;
+static constexpr size_t HOLDEN_LINK_MAX = 220;
 static constexpr size_t HDR = 19;
 static constexpr size_t TAG = 16;
 static constexpr size_t MAX_FRAME = 240;
@@ -80,6 +81,8 @@ bool radioOk = false;
 String ssid;
 String statusText = "boot";
 uint32_t dropCount = 0;
+uint32_t linkLastRx = 0;
+uint32_t linkLastHeartbeatTx = 0;
 
 #ifdef HOLDEN_TARGET_S2
 Module *ccModule = nullptr;
@@ -98,6 +101,10 @@ uint32_t uartRxCount = 0;
 uint32_t txCount = 0;
 int16_t lastTxResult = 0;
 #endif
+
+static bool linkConnected() {
+  return linkLastRx != 0 && (uint32_t)(millis() - linkLastRx) < 3000;
+}
 
 static uint16_t crc16Update(uint16_t crc, uint8_t b) {
   crc ^= (uint16_t)b << 8;
@@ -121,6 +128,14 @@ static void sendLink(uint8_t type, const uint8_t *data = nullptr, uint16_t len =
   if (len && data) LinkSerial.write(data, len);
   LinkSerial.write((uint8_t)(crc & 0xFF)); LinkSerial.write((uint8_t)(crc >> 8));
   LinkSerial.flush();
+}
+
+static void serviceHeartbeat() {
+  uint32_t now = millis();
+  if ((uint32_t)(now - linkLastHeartbeatTx) >= 1000) {
+    linkLastHeartbeatTx = now;
+    sendLink(LINK_HEARTBEAT);
+  }
 }
 
 static long argI(const char *name, long d) {
@@ -284,7 +299,7 @@ static void serviceRadio() {}
 static void handleLink(uint8_t type, const uint8_t *data, uint16_t len) { if (type == LINK_DATA) repeatPacket(data,len); }
 #endif
 
-static uint8_t linkBuf[LINK_MAX + 7];
+static uint8_t linkBuf[HOLDEN_LINK_MAX + 7];
 static uint16_t linkPos = 0;
 static uint16_t linkExpected = 0;
 static void resetLinkParser() { linkPos=0; linkExpected=0; }
@@ -297,24 +312,32 @@ static void serviceLink() {
     linkBuf[linkPos++] = b;
     if (linkPos==5) {
       uint16_t len=(uint16_t)linkBuf[3]|((uint16_t)linkBuf[4]<<8);
-      if (len>LINK_MAX) { resetLinkParser(); continue; }
+      if (len>HOLDEN_LINK_MAX) { resetLinkParser(); continue; }
       linkExpected=(uint16_t)(7+len);
     }
     if (linkExpected && linkPos==linkExpected) {
       uint8_t type=linkBuf[2]; uint16_t len=(uint16_t)linkBuf[3]|((uint16_t)linkBuf[4]<<8);
       uint16_t got=(uint16_t)linkBuf[5+len]|((uint16_t)linkBuf[6+len]<<8); uint16_t want=linkCrc(type,len,linkBuf+5);
-      if (got==want) handleLink(type,linkBuf+5,len); else { dropCount++; statusText="UART CRC error"; }
+      if (got==want) { linkLastRx = millis(); handleLink(type,linkBuf+5,len); }
+      else { dropCount++; statusText="UART CRC error"; }
       resetLinkParser();
     }
   }
 }
 
 static String page() {
-  String h; h.reserve(9000);
+  String h; h.reserve(9400);
+  bool linked = linkConnected();
   h += F("<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><style>body{font-family:system-ui;background:#0b1020;color:#eef2ff;margin:20px}.w{max-width:900px;margin:auto}.c{background:#151c31;border:1px solid #2b3658;border-radius:16px;padding:18px;margin:14px 0}.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px}label{display:block;color:#b9c7ef;margin-top:8px}input{width:100%;box-sizing:border-box;padding:9px;background:#0e1529;color:#fff;border:1px solid #41507a;border-radius:8px}button{margin-top:12px;padding:10px 14px;background:#6d7dff;color:#fff;border:0;border-radius:9px;font-weight:700}.ok{color:#7bf0aa}.bad{color:#ff8a9a}code{background:#0a1123;padding:2px 5px;border-radius:5px}</style><div class=w><h1>Holden RF Repeater</h1><div class=c><h2>Status</h2>");
   h += "<p>Board: <b>" + String(BOARD_NAME) + "</b></p>";
   h += "<p>Wi-Fi: <b class='" + String(apOk ? "ok'>READY" : "bad'>FAILED") + "</b></p>";
-  h += "<p>Radio: <b class='" + String(radioOk ? "ok'>READY" : "bad'>NOT READY") + "</b></p><p>" + statusText + "</p>";
+  h += "<p>Radio: <b class='" + String(radioOk ? "ok'>READY" : "bad'>NOT READY") + "</b></p>";
+#ifdef HOLDEN_TARGET_S2
+  h += "<p>C3 link: <b class='" + String(linked ? "ok'>CONNECTED" : "bad'>DISCONNECTED") + "</b></p>";
+#else
+  h += "<p>S2 link: <b class='" + String(linked ? "ok'>CONNECTED" : "bad'>DISCONNECTED") + "</b></p>";
+#endif
+  h += "<p>" + statusText + "</p>";
 #ifdef HOLDEN_TARGET_S2
   h += "<p>Role: <b>CC1101 receive &rarr; UART to C3</b></p><p>CC RX: " + String(ccRxCount) + " / UART sent: " + String(uartSentCount) + " / dropped: " + String(dropCount) + "</p><p>Last RSSI: " + String(lastRssi,1) + " dBm</p>";
   h += F("</div><div class=c><h2>Wiring</h2><p>CC1101 GDO0 &rarr; GPIO5, CSN &rarr; GPIO10, SCK &rarr; SCK, MOSI &rarr; MO, MISO/GDO1 &rarr; MI, GDO2 &rarr; GPIO6.</p><p>S2 RX(GPIO38) &larr; C3 D6 TX; S2 TX(GPIO39) &rarr; C3 D7 RX.</p><p>The CC1101 is automatically put in standby while the DX-LR20 retransmits, then RX resumes after a guard delay.</p></div>");
@@ -362,7 +385,7 @@ void setup() {
 }
 
 void loop() {
-  server.handleClient(); serviceLink(); serviceRadio();
+  server.handleClient(); serviceLink(); serviceHeartbeat(); serviceRadio();
 #ifdef HOLDEN_TARGET_S2
   serviceCcMute();
 #endif
