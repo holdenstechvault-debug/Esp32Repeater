@@ -36,7 +36,6 @@ jobs:
           cp .pio/build/seeed_xiao_esp32c3/bootloader.bin web/firmware/c3/bootloader.bin
           cp .pio/build/seeed_xiao_esp32c3/partitions.bin web/firmware/c3/partitions.bin
           cp .pio/build/seeed_xiao_esp32c3/firmware.bin web/firmware/c3/firmware.bin
-          cp .pio/build/adafruit_feather_esp32s2/bootloader.bin web/firmware/s2/bootloader.bin
           cp .pio/build/adafruit_feather_esp32s2/partitions.bin web/firmware/s2/partitions.bin
           cp .pio/build/adafruit_feather_esp32s2/firmware.bin web/firmware/s2/firmware.bin
           BOOT_APP0=$(find "$HOME/.platformio" -name boot_app0.bin | head -n 1)
