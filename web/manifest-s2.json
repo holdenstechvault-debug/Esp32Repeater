@@ -1,0 +1,16 @@
+{
+  "name": "Holden LoRa Repeater - Adafruit ESP32-S2 Feather",
+  "version": "0.2.0",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S2",
+      "parts": [
+        { "path": "firmware/s2/bootloader.bin", "offset": 4096 },
+        { "path": "firmware/s2/partitions.bin", "offset": 32768 },
+        { "path": "firmware/s2/boot_app0.bin", "offset": 57344 },
+        { "path": "firmware/s2/firmware.bin", "offset": 65536 }
+      ]
+    }
+  ]
+}
