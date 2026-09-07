@@ -14,7 +14,19 @@ static const int DEF_SCK=36, DEF_MISO=37, DEF_MOSI=35, DEF_NSS=10, DEF_DIO1=9, D
 #else
 static const char *BOARD_NAME = "Seeed XIAO ESP32-C3";
 static const char *BOARD_TAG = "C3";
-static const int DEF_SCK=8, DEF_MISO=9, DEF_MOSI=10, DEF_NSS=5, DEF_DIO1=4, DEF_RST=3, DEF_BUSY=21, DEF_RXEN=6, DEF_TXEN=7;
+// Exact wiring used on Holden's XIAO ESP32-C3.
+// D6/D7 are intentionally NOT used by RadioLib; they are reserved for UART to the ESP32-S2.
+static const int DEF_SCK=D8;
+static const int DEF_MISO=D9;
+static const int DEF_MOSI=D10;
+static const int DEF_NSS=D0;
+static const int DEF_DIO1=D2;
+static const int DEF_RST=D1;
+static const int DEF_BUSY=D3;
+static const int DEF_RXEN=D5;
+static const int DEF_TXEN=D4;
+static const int C3_UART_TX=D6;
+static const int C3_UART_RX=D7;
 #endif
 
 static constexpr size_t HDR=19, TAG=16, MAX_FRAME=240;
@@ -55,39 +67,104 @@ static void save(){
   prefs.putFloat("f",cfg.freq);prefs.putFloat("bw",cfg.bw);prefs.putUChar("sf",cfg.sf);prefs.putUChar("cr",cfg.cr);prefs.putUChar("sw",cfg.sync);prefs.putChar("pw",cfg.power);prefs.putUShort("pre",cfg.preamble);prefs.putUShort("net",cfg.network);
   prefs.putInt("sck",cfg.sck);prefs.putInt("mi",cfg.miso);prefs.putInt("mo",cfg.mosi);prefs.putInt("cs",cfg.nss);prefs.putInt("d1",cfg.dio1);prefs.putInt("rst",cfg.rst);prefs.putInt("busy",cfg.busy);prefs.putInt("rx",cfg.rxen);prefs.putInt("tx",cfg.txen);prefs.putBytes("key",cfg.key,32);
 }
+
 static void load(){
   cfg.freq=prefs.getFloat("f",cfg.freq);cfg.bw=prefs.getFloat("bw",cfg.bw);cfg.sf=prefs.getUChar("sf",cfg.sf);cfg.cr=prefs.getUChar("cr",cfg.cr);cfg.sync=prefs.getUChar("sw",cfg.sync);cfg.power=prefs.getChar("pw",cfg.power);cfg.preamble=prefs.getUShort("pre",cfg.preamble);cfg.network=prefs.getUShort("net",cfg.network);
   cfg.sck=prefs.getInt("sck",cfg.sck);cfg.miso=prefs.getInt("mi",cfg.miso);cfg.mosi=prefs.getInt("mo",cfg.mosi);cfg.nss=prefs.getInt("cs",cfg.nss);cfg.dio1=prefs.getInt("d1",cfg.dio1);cfg.rst=prefs.getInt("rst",cfg.rst);cfg.busy=prefs.getInt("busy",cfg.busy);cfg.rxen=prefs.getInt("rx",cfg.rxen);cfg.txen=prefs.getInt("tx",cfg.txen);
   if(prefs.getBytesLength("key")==32)prefs.getBytes("key",cfg.key,32);else{newKey();prefs.putBytes("key",cfg.key,32);}
+
+#ifndef HOLDEN_TARGET_S2
+  // Migrate any C3 flashed with the old incorrect pin defaults to the actual wiring.
+  // This runs once so later changes made from the web UI are preserved.
+  if(!prefs.getBool("c3pins2",false)){
+    cfg.sck=DEF_SCK; cfg.miso=DEF_MISO; cfg.mosi=DEF_MOSI;
+    cfg.nss=DEF_NSS; cfg.dio1=DEF_DIO1; cfg.rst=DEF_RST; cfg.busy=DEF_BUSY;
+    cfg.rxen=DEF_RXEN; cfg.txen=DEF_TXEN;
+    prefs.putBool("c3pins2",true);
+    save();
+  }
+#endif
 }
 
 void IRAM_ATTR gotPacket(){packetReady=true;}
 static void stopRadio(){radioOk=false;if(radio){delete radio;radio=nullptr;}if(mod){delete mod;mod=nullptr;}SPI.end();}
+
 static bool startRadio(){
-  stopRadio();SPI.begin(cfg.sck,cfg.miso,cfg.mosi,cfg.nss);static SPISettings sp(4000000,MSBFIRST,SPI_MODE0);mod=new Module(cfg.nss,cfg.dio1,cfg.rst,cfg.busy,SPI,sp);radio=new LLCC68(mod);radio->setRfSwitchPins(cfg.rxen,cfg.txen);
-  int16_t r=radio->begin(cfg.freq,cfg.bw,cfg.sf,cfg.cr,cfg.sync,cfg.power,cfg.preamble,0.0,false);if(r!=RADIOLIB_ERR_NONE){statusText="radio init failed "+String(r);return false;}radio->setPacketReceivedAction(gotPacket);r=radio->startReceive();if(r!=RADIOLIB_ERR_NONE){statusText="RX start failed "+String(r);return false;}radioOk=true;statusText="radio ready";return true;
+  stopRadio();
+  Serial.printf("LoRa pins: SCK=%d MISO=%d MOSI=%d NSS=%d DIO1=%d RST=%d BUSY=%d RXEN=%d TXEN=%d\n",
+                cfg.sck,cfg.miso,cfg.mosi,cfg.nss,cfg.dio1,cfg.rst,cfg.busy,cfg.rxen,cfg.txen);
+  SPI.begin(cfg.sck,cfg.miso,cfg.mosi,cfg.nss);
+  static SPISettings sp(4000000,MSBFIRST,SPI_MODE0);
+  mod=new Module(cfg.nss,cfg.dio1,cfg.rst,cfg.busy,SPI,sp);
+  radio=new LLCC68(mod);
+  radio->setRfSwitchPins(cfg.rxen,cfg.txen);
+  int16_t r=radio->begin(cfg.freq,cfg.bw,cfg.sf,cfg.cr,cfg.sync,cfg.power,cfg.preamble,0.0,false);
+  if(r!=RADIOLIB_ERR_NONE){statusText="radio init failed "+String(r);Serial.println(statusText);return false;}
+  radio->setPacketReceivedAction(gotPacket);
+  r=radio->startReceive();
+  if(r!=RADIOLIB_ERR_NONE){statusText="RX start failed "+String(r);Serial.println(statusText);return false;}
+  radioOk=true;statusText="radio ready";Serial.println("DX-LR20 radio ready");return true;
 }
 
 static bool valid(uint8_t*f,size_t n){
-  if(n<HDR+TAG||n>MAX_FRAME||f[0]!=MAGIC0||f[1]!=MAGIC1||f[2]!=VERSION){rejectCount++;return false;}if(u16(f+O_NET)!=cfg.network){rejectCount++;return false;}size_t signedLen=HDR+f[O_LEN];if(signedLen+TAG!=n){rejectCount++;return false;}uint8_t m[TAG];if(!mac16(f,signedLen,m)||!same(m,f+signedLen,TAG)){rejectCount++;return false;}uint32_t sender=u32(f+O_SENDER);uint64_t count=u64(f+O_COUNT);String k=ck(sender);if(count<=prefs.getULong64(k.c_str(),0)||f[O_TTL]==0){rejectCount++;return false;}prefs.putULong64(k.c_str(),count);f[O_TTL]--;return mac16(f,signedLen,f+signedLen);
+  if(n<HDR+TAG||n>MAX_FRAME||f[0]!=MAGIC0||f[1]!=MAGIC1||f[2]!=VERSION){rejectCount++;return false;}
+  if(u16(f+O_NET)!=cfg.network){rejectCount++;return false;}
+  size_t signedLen=HDR+f[O_LEN];if(signedLen+TAG!=n){rejectCount++;return false;}
+  uint8_t m[TAG];if(!mac16(f,signedLen,m)||!same(m,f+signedLen,TAG)){rejectCount++;return false;}
+  uint32_t sender=u32(f+O_SENDER);uint64_t count=u64(f+O_COUNT);String k=ck(sender);
+  if(count<=prefs.getULong64(k.c_str(),0)||f[O_TTL]==0){rejectCount++;return false;}
+  prefs.putULong64(k.c_str(),count);f[O_TTL]--;return mac16(f,signedLen,f+signedLen);
 }
+
 static void relay(){
-  packetReady=false;if(!radioOk)return;size_t n=radio->getPacketLength();if(n==0||n>MAX_FRAME){radio->startReceive();return;}uint8_t f[MAX_FRAME];int16_t r=radio->readData(f,n);if(r!=RADIOLIB_ERR_NONE){radio->startReceive();return;}rxCount++;lastRssi=radio->getRSSI();lastSnr=radio->getSNR();if(valid(f,n)){delay(40+(esp_random()%120));r=radio->transmit(f,n);if(r==RADIOLIB_ERR_NONE){txCount++;statusText="forwarded";}else statusText="TX failed "+String(r);}radio->startReceive();
+  packetReady=false;if(!radioOk)return;size_t n=radio->getPacketLength();if(n==0||n>MAX_FRAME){radio->startReceive();return;}
+  uint8_t f[MAX_FRAME];int16_t r=radio->readData(f,n);if(r!=RADIOLIB_ERR_NONE){radio->startReceive();return;}
+  rxCount++;lastRssi=radio->getRSSI();lastSnr=radio->getSNR();
+  if(valid(f,n)){delay(40+(esp_random()%120));r=radio->transmit(f,n);if(r==RADIOLIB_ERR_NONE){txCount++;statusText="forwarded";}else statusText="TX failed "+String(r);}
+  radio->startReceive();
 }
 
 static long argI(const char*n,long d){return server.hasArg(n)?strtol(server.arg(n).c_str(),nullptr,0):d;}
 static float argF(const char*n,float d){return server.hasArg(n)?server.arg(n).toFloat():d;}
+
 static String page(){
-  String h;h.reserve(8500);h+=F("<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><style>body{font-family:system-ui;background:#0b1020;color:#eef2ff;margin:20px}.w{max-width:900px;margin:auto}.c{background:#151c31;border:1px solid #2b3658;border-radius:16px;padding:18px;margin:14px 0}.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px}label{display:block;color:#b9c7ef;margin-top:8px}input{width:100%;box-sizing:border-box;padding:9px;background:#0e1529;color:#fff;border:1px solid #41507a;border-radius:8px}button{margin-top:12px;padding:10px 14px;background:#6d7dff;color:#fff;border:0;border-radius:9px;font-weight:700}.ok{color:#7bf0aa}.bad{color:#ff8a9a}code{background:#0a1123;padding:2px 5px;border-radius:5px}</style><div class=w><h1>Holden LoRa Repeater</h1><div class=c><h2>Status</h2>");
+  String h;h.reserve(9500);
+  h+=F("<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><style>body{font-family:system-ui;background:#0b1020;color:#eef2ff;margin:20px}.w{max-width:900px;margin:auto}.c{background:#151c31;border:1px solid #2b3658;border-radius:16px;padding:18px;margin:14px 0}.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px}label{display:block;color:#b9c7ef;margin-top:8px}input{width:100%;box-sizing:border-box;padding:9px;background:#0e1529;color:#fff;border:1px solid #41507a;border-radius:8px}button{margin-top:12px;padding:10px 14px;background:#6d7dff;color:#fff;border:0;border-radius:9px;font-weight:700}.ok{color:#7bf0aa}.bad{color:#ff8a9a}code{background:#0a1123;padding:2px 5px;border-radius:5px}</style><div class=w><h1>Holden LoRa Repeater</h1><div class=c><h2>Status</h2>");
   h+="<p>Board: <b>"+String(BOARD_NAME)+"</b></p><p>Setup Wi-Fi: <b class='"+(apOk?String("ok'>READY"):String("bad'>FAILED"))+"</b></p><p>Radio: <b class='"+(radioOk?String("ok'>READY"):String("bad'>NOT READY"))+"</b></p><p>SSID: <code>"+ssid+"</code></p><p>"+statusText+"</p><p>RX "+String(rxCount)+" / forwarded "+String(txCount)+" / rejected "+String(rejectCount)+"</p><p>RSSI/SNR "+String(lastRssi,1)+" dBm / "+String(lastSnr,1)+" dB</p></div>";
+#ifndef HOLDEN_TARGET_S2
+  h+=F("<div class=c><h2>C3 wiring</h2><p>DX-LR20: SCK D8, MISO D9, MOSI D10, NSS D0, RESET D1, DIO1 D2, BUSY D3, TXEN D4, RXEN D5.</p><p>D6 = UART TX to S2, D7 = UART RX from S2. D6/D7 are reserved and are not used by the LoRa driver.</p></div>");
+#endif
   h+=F("<div class=c><h2>Configuration</h2><form method=post action=/save><label>256-bit key</label><input name=key value='");h+=keyHex();h+=F("'><div class=g>");
   auto f=[&](const char*l,const char*n,String v){h+="<div><label>"+String(l)+"</label><input name='"+n+"' value='"+v+"'></div>";};
-  f("Network ID","net",String(cfg.network));f("Frequency MHz","freq",String(cfg.freq,3));f("Bandwidth kHz","bw",String(cfg.bw,1));f("SF","sf",String(cfg.sf));f("CR denominator","cr",String(cfg.cr));f("Sync word","sw",String(cfg.sync));f("TX dBm","pw",String(cfg.power));f("SCK","sck",String(cfg.sck));f("MISO","mi",String(cfg.miso));f("MOSI","mo",String(cfg.mosi));f("NSS/CS","cs",String(cfg.nss));f("DIO1","d1",String(cfg.dio1));f("RESET","rst",String(cfg.rst));f("BUSY","busy",String(cfg.busy));f("RXEN","rx",String(cfg.rxen));f("TXEN","tx",String(cfg.txen));h+=F("</div><button>Save + reboot</button></form><form method=post action=/reset><button>Factory reset</button></form></div></div>");return h;
-}
-static void handleSave(){if(!server.hasArg("key")||!parseKey(server.arg("key"))){server.send(400,"text/plain","Key must be 64 hex chars");return;}cfg.network=argI("net",cfg.network);cfg.freq=argF("freq",cfg.freq);cfg.bw=argF("bw",cfg.bw);cfg.sf=argI("sf",cfg.sf);cfg.cr=argI("cr",cfg.cr);cfg.sync=argI("sw",cfg.sync);cfg.power=argI("pw",cfg.power);cfg.sck=argI("sck",cfg.sck);cfg.miso=argI("mi",cfg.miso);cfg.mosi=argI("mo",cfg.mosi);cfg.nss=argI("cs",cfg.nss);cfg.dio1=argI("d1",cfg.dio1);cfg.rst=argI("rst",cfg.rst);cfg.busy=argI("busy",cfg.busy);cfg.rxen=argI("rx",cfg.rxen);cfg.txen=argI("tx",cfg.txen);save();server.send(200,"text/html","Saved; rebooting");delay(300);ESP.restart();}
-static void startAP(){
-  char suf[7];snprintf(suf,sizeof(suf),"%06lX",(unsigned long)(ESP.getEfuseMac()&0xFFFFFF));ssid="HOLDEN-LORA-"+String(BOARD_TAG)+"-"+suf;WiFi.softAPdisconnect(true);delay(100);WiFi.mode(WIFI_AP);WiFi.setSleep(false);WiFi.softAPConfig(IPAddress(192,168,4,1),IPAddress(192,168,4,1),IPAddress(255,255,255,0));apOk=WiFi.softAP(ssid.c_str(),"repeater-setup",6,false,4);if(!apOk){WiFi.softAPdisconnect(true);delay(150);apOk=WiFi.softAP(ssid.c_str());}Serial.printf("%s\nSSID: %s\nAP: %s\nIP: %s\n",BOARD_NAME,ssid.c_str(),apOk?"READY":"FAILED",WiFi.softAPIP().toString().c_str());server.on("/",HTTP_GET,[](){server.send(200,"text/html",page());});server.on("/save",HTTP_POST,handleSave);server.on("/reset",HTTP_POST,[](){prefs.clear();server.send(200,"text/plain","Reset; rebooting");delay(300);ESP.restart();});server.onNotFound([](){server.sendHeader("Location","/");server.send(302,"text/plain","");});server.begin();
+  f("Network ID","net",String(cfg.network));f("Frequency MHz","freq",String(cfg.freq,3));f("Bandwidth kHz","bw",String(cfg.bw,1));f("SF","sf",String(cfg.sf));f("CR denominator","cr",String(cfg.cr));f("Sync word","sw",String(cfg.sync));f("TX dBm","pw",String(cfg.power));f("SCK","sck",String(cfg.sck));f("MISO","mi",String(cfg.miso));f("MOSI","mo",String(cfg.mosi));f("NSS/CS","cs",String(cfg.nss));f("DIO1","d1",String(cfg.dio1));f("RESET","rst",String(cfg.rst));f("BUSY","busy",String(cfg.busy));f("RXEN","rx",String(cfg.rxen));f("TXEN","tx",String(cfg.txen));
+  h+=F("</div><button>Save + reboot</button></form><form method=post action=/reset><button>Factory reset</button></form></div></div>");return h;
 }
 
-void setup(){Serial.begin(115200);delay(400);prefs.begin("holden-lora",false);load();startAP();statusText=apOk?"setup Wi-Fi ready; radio delayed":"setup Wi-Fi failed";}
+static void handleSave(){
+  if(!server.hasArg("key")||!parseKey(server.arg("key"))){server.send(400,"text/plain","Key must be 64 hex chars");return;}
+  cfg.network=argI("net",cfg.network);cfg.freq=argF("freq",cfg.freq);cfg.bw=argF("bw",cfg.bw);cfg.sf=argI("sf",cfg.sf);cfg.cr=argI("cr",cfg.cr);cfg.sync=argI("sw",cfg.sync);cfg.power=argI("pw",cfg.power);
+  cfg.sck=argI("sck",cfg.sck);cfg.miso=argI("mi",cfg.miso);cfg.mosi=argI("mo",cfg.mosi);cfg.nss=argI("cs",cfg.nss);cfg.dio1=argI("d1",cfg.dio1);cfg.rst=argI("rst",cfg.rst);cfg.busy=argI("busy",cfg.busy);cfg.rxen=argI("rx",cfg.rxen);cfg.txen=argI("tx",cfg.txen);
+  save();server.send(200,"text/html","Saved; rebooting");delay(300);ESP.restart();
+}
+
+static void startAP(){
+  char suf[7];snprintf(suf,sizeof(suf),"%06lX",(unsigned long)(ESP.getEfuseMac()&0xFFFFFF));ssid="HOLDEN-LORA-"+String(BOARD_TAG)+"-"+suf;
+  WiFi.softAPdisconnect(true);delay(100);WiFi.mode(WIFI_AP);WiFi.setSleep(false);WiFi.softAPConfig(IPAddress(192,168,4,1),IPAddress(192,168,4,1),IPAddress(255,255,255,0));
+  apOk=WiFi.softAP(ssid.c_str(),"repeater-setup",6,false,4);if(!apOk){WiFi.softAPdisconnect(true);delay(150);apOk=WiFi.softAP(ssid.c_str());}
+  Serial.printf("%s\nSSID: %s\nAP: %s\nIP: %s\n",BOARD_NAME,ssid.c_str(),apOk?"READY":"FAILED",WiFi.softAPIP().toString().c_str());
+  server.on("/",HTTP_GET,[](){server.send(200,"text/html",page());});server.on("/save",HTTP_POST,handleSave);
+  server.on("/reset",HTTP_POST,[](){prefs.clear();server.send(200,"text/plain","Reset; rebooting");delay(300);ESP.restart();});
+  server.onNotFound([](){server.sendHeader("Location","/");server.send(302,"text/plain","");});server.begin();
+}
+
+void setup(){
+  Serial.begin(115200);delay(400);prefs.begin("holden-lora",false);load();
+#ifndef HOLDEN_TARGET_S2
+  // Reserve the physical D6/D7 pair for the C3 <-> S2 UART link.
+  Serial1.begin(115200,SERIAL_8N1,C3_UART_RX,C3_UART_TX);
+  Serial.printf("S2 UART reserved: TX=D6(%d), RX=D7(%d)\n",C3_UART_TX,C3_UART_RX);
+#endif
+  startAP();statusText=apOk?"setup Wi-Fi ready; radio delayed":"setup Wi-Fi failed";
+}
+
 void loop(){server.handleClient();if(packetReady)relay();static uint32_t retry=0;if(!radioOk&&millis()>3000&&millis()-retry>5000){retry=millis();startRadio();}delay(2);}
