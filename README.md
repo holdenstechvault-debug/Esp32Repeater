@@ -1,98 +1,171 @@
-# Holden LoRa Repeater Web Flasher
+# Holden RF Repeater + Messenger
 
-This project builds browser-flashable firmware for a **Seeed Studio XIAO ESP32-C3 + DX-LR20 (LLCC68)** LoRa repeater.
+This repository contains the current firmware and browser flasher for the Holden repeater and the two messenger endpoints.
 
-## Important architecture correction
+## Current repeater architecture
 
-The original plan used a CC1101 as the repeater receiver. That will not work for packets sent by a DX-LR20 or Heltec V3 in LoRa mode: CC1101 does not demodulate LoRa. This version instead uses the DX-LR20 itself as a half-duplex LoRa receiver/transmitter. One XIAO C3 + one DX-LR20 is enough for the repeater.
+The repeater uses two ESP32 boards and two radios:
 
-## Security model
+`endpoint FSK TX -> CC1101 -> ESP32-S2 Feather -> UART -> XIAO ESP32-C3 -> DX-LR20 LoRa TX`
 
-Frames are accepted only when all of these are true:
+The reverse user experience is handled by the endpoint messenger software: after an endpoint sends its authenticated FSK uplink, it switches back to LoRa receive mode and waits for the repeater's authenticated LoRa retransmission.
 
-- magic/version match
-- network ID matches
-- HMAC-SHA256 (truncated to 128 bits) validates with the 256-bit network key
-- sender counter is newer than the last accepted counter
-- TTL is non-zero
+### ESP32-S2 Feather role
 
-The repeater decrements TTL, recomputes the HMAC, and retransmits. Old counters are stored in ESP32 NVS to reject replayed packets across reboots.
+The S2 owns the **CC1101 receiver**.
 
-This is intentionally not a home-made cipher. HMAC-SHA256 provides authentication; the rolling counter provides replay protection. Payload encryption can be added later at the endpoints if desired.
+Confirmed CC1101 wiring:
 
-## Default XIAO C3 -> DX-LR20 logical wiring
+| CC1101 | ESP32-S2 Feather |
+|---|---|
+| GDO0 | GPIO5 |
+| CSN | GPIO10 |
+| SCK | SCK |
+| MOSI | MO |
+| MISO | MI |
+| GDO2 | GPIO6 |
 
-The setup page lets you change every pin. Defaults are:
+The S2 uses its pins labeled **RX** and **TX** for the UART link to the C3.
 
-| DX-LR20 signal | XIAO pin | ESP32-C3 GPIO |
-|---|---|---:|
-| SCK | D8 | 8 |
-| MISO | D9 | 9 |
-| MOSI | D10 | 10 |
-| NSS/CS | D3 | 5 |
-| DIO1 | D2 | 4 |
-| NRST | D1 | 3 |
-| BUSY | D6 | 21 |
-| RXEN | D4 | 6 |
-| TXEN | D5 | 7 |
-| VCC | 3V3 | - |
-| GND | GND | - |
+### XIAO ESP32-C3 role
 
-**Do not assume the physical order of the header from this table. Match the silk-screened signal names on your DX-LR20 adapter.**
+The C3 owns the **DX-LR20 / LLCC68** and transmits the repeated LoRa packet.
 
-Connect the antenna before powering/transmitting. The DX-LR20 is a 3.3 V logic/power device.
+Confirmed DX-LR20 wiring:
 
-## Get the web flasher online
+| DX-LR20 | XIAO ESP32-C3 |
+|---|---|
+| NSS / CS | D0 |
+| RESET | D1 |
+| DIO1 | D2 |
+| BUSY | D3 |
+| TXEN | D4 |
+| RXEN | D5 |
+| SCK | D8 |
+| MISO | D9 |
+| MOSI | D10 |
 
-1. Create a new GitHub repository.
-2. Upload this project's contents to the repository root.
-3. In GitHub, open **Settings -> Pages** and set **Source** to **GitHub Actions**.
-4. Push to `main` or manually run the `Build firmware and publish web flasher` workflow.
-5. Open the Pages URL in desktop Chrome or Edge.
-6. Plug in the XIAO C3 and press **Install repeater firmware**.
+UART:
 
-ESP Web Tools requires HTTPS (GitHub Pages supplies this) or localhost because Web Serial is a secure-context browser API.
+| C3 | S2 |
+|---|---|
+| D6 TX | RX |
+| D7 RX | TX |
+| GND | GND |
 
-## First boot
+A common ground is required.
 
-The repeater starts a setup access point:
+## Self-receive protection
 
-- SSID: `HOLDEN-LORA-xxxxxx`
+The repeater prevents a feedback loop in two layers:
+
+1. As soon as the S2 receives a CC1101 packet, it puts the CC1101 into standby.
+2. The C3 sends `TX_BEGIN` before the DX-LR20 transmits and `TX_END` afterward. The S2 waits a short guard time before returning the CC1101 to RX.
+
+The C3 and S2 also exchange heartbeats. Their setup pages show `CONNECTED` or `DISCONNECTED` for the UART link.
+
+## Repeated-only receiving endpoints
+
+The messenger endpoints intentionally display **only the repeater output**, not the original direct uplink.
+
+A received message is added to the UI only after the endpoint accepts a valid repeated frame with:
+
+- outer magic `HL`
+- correct outer version
+- matching Network ID
+- repeat marker
+- valid HMAC-SHA256 tag
+- newer monotonic repeat counter
+- valid authenticated inner `HM` message
+
+Pressing **Send** does not immediately create a local chat message. The endpoint transmits the authenticated FSK uplink, returns to LoRa RX, and the message appears only after a valid repeated LoRa frame comes back from the repeater.
+
+## Firmware source
+
+Current source files:
+
+- `src/repeater_v3.cpp` — repeater C3 + S2 firmware
+- `src/endpoint_messenger.cpp` — Heltec V3 + home DX-LR20 messenger firmware
+
+PlatformIO targets are defined in `platformio.ini`:
+
+- `seeed_xiao_esp32c3` — repeater C3
+- `adafruit_feather_esp32s2` — repeater S2
+- `heltec_wifi_lora_32_V3` — Heltec V3 messenger
+- `home_xiao_esp32c3` — home DX-LR20 messenger
+
+The S2 PlatformIO target enables native USB CDC on boot.
+
+## Arduino IDE
+
+Arduino IDE instructions are in:
+
+- `docs/ARDUINO_IDE.md`
+- `docs/S2_BOOT_MODE.md`
+
+For the ESP32-S2 Feather, the documented recovery sequence is:
+
+**hold BOOT/DFU -> tap RESET -> release BOOT/DFU**, select the new bootloader port, upload, then press RESET once for normal operation.
+
+Nothing in the current CC1101/UART wiring uses GPIO0, so the BOOT strap is left free.
+
+## Setup Wi-Fi
+
+Repeater C3:
+
+- SSID: `HOLDEN-LORA-C3-xxxxxx`
 - password: `repeater-setup`
-- setup page: `http://192.168.4.1`
+- page: `http://192.168.4.1`
 
-The firmware generates a random 256-bit network key on first boot. Copy that key into the home endpoint and girlfriend endpoint firmware/config. All three radios must also use matching LoRa PHY settings.
+Repeater S2:
 
-## Default LoRa PHY
+- SSID: `HOLDEN-LORA-S2-xxxxxx`
+- password: `repeater-setup`
+- page: `http://192.168.4.1`
+
+The S2 setup AP starts before Preferences, UART, or CC1101 initialization so radio/wiring failures should not suppress recovery Wi-Fi.
+
+Messenger endpoints:
+
+- Heltec SSID: `HOLDEN-MSG-HELTEC-xxxxxx`
+- Home SSID: `HOLDEN-MSG-HOME-xxxxxx`
+- password: `holden-messenger`
+- page: `http://192.168.4.1`
+
+## Default radio settings
+
+Repeated LoRa output:
 
 - 915.000 MHz
 - 125 kHz bandwidth
 - SF9
 - coding rate 4/7
-- sync word 0x12
-- TX power +22 dBm
+- sync word `0x12`
+- repeater TX power +22 dBm
 - preamble 12 symbols
 
-Change these only in a way that is legal for your region and compatible with both the DX-LR20 and Heltec V3.
+FSK uplink between the messenger endpoint and CC1101:
 
-## Packet format v1
+- 915.000 MHz
+- 4.8 kbps
+- 5.0 kHz deviation
+- CC1101 receive bandwidth approximately 58 kHz
+- sync word `12 AD`
 
-All integers are big-endian.
+The endpoint and repeater settings must match.
 
-| Offset | Length | Field |
-|---:|---:|---|
-| 0 | 2 | magic `HL` |
-| 2 | 1 | version = 1 |
-| 3 | 2 | network ID |
-| 5 | 4 | sender ID |
-| 9 | 8 | monotonically increasing counter |
-| 17 | 1 | TTL |
-| 18 | 1 | payload length |
-| 19 | N | payload |
-| 19+N | 16 | HMAC-SHA256 tag, truncated to 16 bytes |
+## Security
 
-The HMAC covers everything from offset 0 through the end of the payload.
+The system uses HMAC-SHA256 authentication with a 256-bit shared key, truncated tags, monotonic counters, and replay rejection. The repeated LoRa frame contains a separate authenticated outer wrapper around the endpoint's authenticated inner message.
 
-## What still needs endpoint firmware
+Copy the C3 repeater's shared key and Network ID into both messenger endpoints.
 
-This package is the grandparents' repeater only. The home DX-LR20 endpoint and girlfriend's Heltec V3 still need matching sender/receiver firmware that creates/verifies this packet format and maintains sender counters.
+## Web flasher
+
+The GitHub Actions workflow builds the firmware and publishes the browser flasher to GitHub Pages:
+
+https://holdenstechvault-debug.github.io/Esp32Repeater/
+
+Use a desktop browser with Web Serial support such as Chrome or Edge.
+
+Connect an antenna appropriate for the configured band before transmitting, and use radio settings that comply with the rules for your location.
