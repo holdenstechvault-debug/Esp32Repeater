@@ -10,12 +10,12 @@
     body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#08101e;color:#edf3ff;margin:0;padding:22px}
     main{max-width:940px;margin:auto}.card{background:#131d31;border:1px solid #2a3958;border-radius:18px;padding:20px;margin:16px 0}
     .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px}.board{background:#0d1629;border:1px solid #2c3c5e;border-radius:15px;padding:16px}
-    h1{font-size:2rem;margin:.2rem 0}h2{margin-top:0}.muted{color:#a5b4d5}.ok{color:#79eea7}.warn{color:#ffd17e}code{background:#091326;padding:3px 6px;border-radius:6px}li{margin:.5rem 0}
+    h1{font-size:2rem;margin:.2rem 0}h2{margin-top:0}.muted{color:#a5b4d5}.ok{color:#79eea7}.warn{color:#ffd17e}.info{color:#8fc8ff}code{background:#091326;padding:3px 6px;border-radius:6px}li{margin:.5rem 0}
   </style>
 </head>
 <body><main>
   <h1>Holden RF Repeater + Messenger</h1>
-  <p class="muted">Flash the two repeater boards and either messenger endpoint from Chrome or Edge.</p>
+  <p class="muted">Flash the repeater boards and the Heltec V3 endpoint from Chrome or Edge. The home DX-LR20 connects directly to the computer through its USB-C interface and does not need an ESP32 firmware flash.</p>
 
   <section class="card">
     <h2>Repeater boards</h2>
@@ -31,7 +31,7 @@
       </div>
       <div class="board">
         <h3>Adafruit ESP32-S2 Feather + CC1101</h3>
-        <p class="muted">Repeater receive side. The setup Wi-Fi now starts before UART, SPI, Preferences or CC1101 initialization.</p>
+        <p class="muted">Repeater receive side. The setup Wi-Fi starts before UART, SPI, Preferences or CC1101 initialization.</p>
         <esp-web-install-button manifest="manifest-s2.json">
           <button slot="activate">Install repeater S2</button>
           <span slot="unsupported">Use desktop Chrome or Edge with Web Serial.</span>
@@ -46,7 +46,7 @@
     <div class="grid">
       <div class="board">
         <h3>Heltec WiFi LoRa 32 V3</h3>
-        <p class="muted">Uses the built-in SX1262. Sends FSK to the repeater and listens for the authenticated LoRa repeat.</p>
+        <p class="muted">Uses the built-in SX1262. Your phone connects to the Heltec's Wi-Fi messenger. The SX1262 sends FSK to the repeater and listens for the authenticated LoRa repeat.</p>
         <esp-web-install-button manifest="manifest-heltec.json">
           <button slot="activate">Install Heltec V3 messenger</button>
           <span slot="unsupported">Use desktop Chrome or Edge with Web Serial.</span>
@@ -54,13 +54,10 @@
         </esp-web-install-button>
       </div>
       <div class="board">
-        <h3>Home XIAO ESP32-C3 + DX-LR20</h3>
-        <p class="muted">Browser messenger for the DX-LR20 node at home. Uses the same D0-D5 / D8-D10 radio wiring.</p>
-        <esp-web-install-button manifest="manifest-home.json">
-          <button slot="activate">Install home messenger</button>
-          <span slot="unsupported">Use desktop Chrome or Edge with Web Serial.</span>
-          <span slot="not-allowed">Open this page over HTTPS.</span>
-        </esp-web-install-button>
+        <h3>Home computer + DX-LR20 over USB-C</h3>
+        <p class="muted">No XIAO ESP32-C3 is used at home. The home DX-LR20 plugs into the computer through the USB-C interface/adapter and is controlled by desktop messenger software.</p>
+        <p class="info"><b>No firmware flasher is required for this endpoint.</b></p>
+        <p class="muted">The desktop software will receive the repeater's LoRa output, verify the authenticated <code>HL</code> repeat frame, and only then show the message.</p>
       </div>
     </div>
   </section>
@@ -69,12 +66,12 @@
     <h2>After flashing</h2>
     <ol>
       <li>Repeater C3 Wi-Fi: <code>HOLDEN-LORA-C3-xxxxxx</code>, password <code>repeater-setup</code>, then open <code>http://192.168.4.1</code>.</li>
-      <li>Repeater S2 Wi-Fi: <code>HOLDEN-LORA-S2-xxxxxx</code>, same password and address. Its AP starts before any CC1101 or UART work.</li>
-      <li>Messenger Wi-Fi: <code>HOLDEN-MSG-HELTEC-xxxxxx</code> or <code>HOLDEN-MSG-HOME-xxxxxx</code>, password <code>holden-messenger</code>, then open <code>http://192.168.4.1</code>.</li>
-      <li>Copy the C3 repeater's <b>Shared 256-bit key</b> and <b>Network ID</b> into both messenger endpoints.</li>
-      <li>Set the messenger FSK uplink frequency to the same value as the S2 CC1101. Default is 915 MHz and can be changed from the setup pages.</li>
+      <li>Repeater S2 Wi-Fi: <code>HOLDEN-LORA-S2-xxxxxx</code>, same password and address.</li>
+      <li>Heltec messenger Wi-Fi: <code>HOLDEN-MSG-HELTEC-xxxxxx</code>, password <code>holden-messenger</code>, then open <code>http://192.168.4.1</code>.</li>
+      <li>Copy the C3 repeater's <b>Shared 256-bit key</b> and <b>Network ID</b> into the Heltec messenger and the home desktop messenger.</li>
+      <li>Set the Heltec FSK uplink frequency to the same value as the S2 CC1101. Set the home DX-LR20 LoRa settings to the same values as the repeater C3 output.</li>
     </ol>
-    <p class="ok"><b>Repeated-only display:</b> endpoint message lists only accept the C3's authenticated <code>HL</code> LoRa repeat envelope. Direct FSK packets are never added to the message list.</p>
+    <p class="ok"><b>Repeated-only display:</b> the receiving messenger accepts only the C3's authenticated <code>HL</code> LoRa repeat envelope. Raw or unrelated RF packets are not shown as messages.</p>
     <p class="warn">Attach the correct antenna before transmitting. Make sure the CC1101 and DX-LR20 hardware/antennas support the frequency you configure.</p>
   </section>
 </main></body></html>
