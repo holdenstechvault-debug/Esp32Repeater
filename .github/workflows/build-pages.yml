@@ -44,6 +44,9 @@ jobs:
           cp .pio/build/seeed_xiao_esp32c3/partitions.bin web/firmware/c3/partitions.bin
           cp .pio/build/seeed_xiao_esp32c3/firmware.bin web/firmware/c3/firmware.bin
 
+          # ESP32-S2 needs its second-stage bootloader at 0x1000.
+          # Copy it into the web artifact so recovery installs can repair a bad/missing bootloader.
+          cp .pio/build/adafruit_feather_esp32s2/bootloader.bin web/firmware/s2/bootloader.bin
           cp .pio/build/adafruit_feather_esp32s2/partitions.bin web/firmware/s2/partitions.bin
           cp .pio/build/adafruit_feather_esp32s2/firmware.bin web/firmware/s2/firmware.bin
 
