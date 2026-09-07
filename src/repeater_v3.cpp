@@ -20,7 +20,6 @@ static constexpr size_t OUTER_HDR = 19;
 static constexpr size_t TAG_LEN = 16;
 static constexpr size_t MAX_RF_FRAME = 240;
 static constexpr size_t MAX_BRIDGED_PAYLOAD = MAX_RF_FRAME - OUTER_HDR - TAG_LEN;
-
 static constexpr size_t MSG_HDR = 17;
 static constexpr uint8_t MSG_VERSION = 1;
 
@@ -96,6 +95,17 @@ LLCC68 *dxRadio = nullptr;
 uint32_t uartRxCount = 0;
 uint32_t txCount = 0;
 int16_t lastTxResult = 0;
+
+// Raw LoRa diagnostic state. This intentionally bypasses the Holden HM/HL
+// protocol so the two DX-LR20 radios can be tested directly.
+volatile bool dxPacketReady = false;
+bool dxDiagRx = false;
+uint32_t dxDiagRxCount = 0;
+uint32_t dxDiagTxCount = 0;
+float dxDiagLastRssi = 0.0f;
+float dxDiagLastSnr = 0.0f;
+String dxDiagLastText;
+String dxDiagLastHex;
 #endif
 
 static bool linkConnected() {
@@ -240,6 +250,27 @@ static size_t buildRepeatedFrame(const uint8_t *payload, size_t len, uint8_t *ou
   if(!hmac16(out,signedLen,out+signedLen)) return 0;
   return signedLen+TAG_LEN;
 }
+
+static String bytesToHex(const uint8_t *data, size_t len) {
+  static const char *hex = "0123456789ABCDEF";
+  String s; s.reserve(len * 3);
+  for (size_t i = 0; i < len; ++i) {
+    if (i) s += ' ';
+    s += hex[data[i] >> 4];
+    s += hex[data[i] & 0x0F];
+  }
+  return s;
+}
+
+static String bytesToSafeText(const uint8_t *data, size_t len) {
+  String s; s.reserve(len);
+  for (size_t i = 0; i < len; ++i) {
+    char c = (char)data[i];
+    if (c >= 32 && c <= 126 && c != '<' && c != '>' && c != '&') s += c;
+    else s += '.';
+  }
+  return s;
+}
 #endif
 
 static void saveConfig() {
@@ -346,9 +377,13 @@ static void handleLink(uint8_t type,const uint8_t*,uint16_t){
   else if(type==LINK_TX_END){if(ccMuted){scheduleCcResume();statusText="DX-LR20 done; guard delay";}}
 }
 #else
+void IRAM_ATTR gotDxPacket() { dxPacketReady = true; }
+
 static void stopRadio(){
   radioOk=false;
-  if(dxRadio){delete dxRadio;dxRadio=nullptr;}
+  dxDiagRx=false;
+  dxPacketReady=false;
+  if(dxRadio){dxRadio->clearPacketReceivedAction();delete dxRadio;dxRadio=nullptr;}
   if(dxModule){delete dxModule;dxModule=nullptr;}
   SPI.end();
 }
@@ -361,12 +396,73 @@ static bool startRadio(){
   dxRadio=new LLCC68(dxModule);
   dxRadio->setRfSwitchPins(DX_RXEN,DX_TXEN);
   int16_t r=dxRadio->begin(cfg.loraFreq,cfg.loraBw,cfg.sf,cfg.cr,cfg.sync,cfg.power,cfg.preamble,0.0,false);
+  if(r==RADIOLIB_ERR_NONE) r=dxRadio->setCRC(true);
   if(r!=RADIOLIB_ERR_NONE){statusText="DX-LR20 init failed "+String(r);return false;}
-  radioOk=true; statusText="DX-LR20 TX ready"; return true;
+  radioOk=true; statusText="DX-LR20 TX ready (LoRa CRC ON)"; return true;
+}
+
+static bool startDxDiagRx(){
+  if(!radioOk||!dxRadio){statusText="diagnostic RX failed: DX-LR20 not ready";return false;}
+  dxPacketReady=false;
+  dxRadio->clearPacketReceivedAction();
+  int16_t r=dxRadio->standby();
+  if(r==RADIOLIB_ERR_NONE){
+    dxRadio->setPacketReceivedAction(gotDxPacket);
+    r=dxRadio->startReceive();
+  }
+  if(r!=RADIOLIB_ERR_NONE){
+    dxRadio->clearPacketReceivedAction();
+    dxDiagRx=false;
+    statusText="diagnostic LoRa RX failed "+String(r);
+    return false;
+  }
+  dxDiagRx=true;
+  statusText="DX-LR20 diagnostic LoRa RX listening";
+  return true;
+}
+
+static void stopDxDiagRx(){
+  dxDiagRx=false;
+  dxPacketReady=false;
+  if(dxRadio){
+    dxRadio->clearPacketReceivedAction();
+    dxRadio->standby();
+  }
+  statusText="DX-LR20 TX ready (diagnostic RX stopped)";
+}
+
+static bool sendDxDiag(const String &input){
+  if(!radioOk||!dxRadio){statusText="diagnostic TX failed: DX-LR20 not ready";return false;}
+  String msg=input;
+  if(msg.length()==0) msg="C3-LORA-TEST";
+  if(msg.length()>180) msg=msg.substring(0,180);
+
+  bool resumeRx=dxDiagRx;
+  if(resumeRx) stopDxDiagRx();
+  else dxRadio->standby();
+
+  sendLink(LINK_TX_BEGIN); delay(10);
+  lastTxResult=dxRadio->transmit((uint8_t*)msg.c_str(),msg.length());
+  sendLink(LINK_TX_END);
+
+  bool ok=(lastTxResult==RADIOLIB_ERR_NONE);
+  if(ok){dxDiagTxCount++;statusText="raw LoRa diagnostic TX sent: "+msg;}
+  else{statusText="raw LoRa diagnostic TX failed "+String(lastTxResult);}
+
+  if(resumeRx){
+    String txStatus=statusText;
+    if(startDxDiagRx()) statusText=txStatus+"; RX resumed";
+  }
+  return ok;
 }
 
 static void repeatPacket(const uint8_t *payload,uint16_t len){
   uartRxCount++;
+  if(dxDiagRx){
+    dropCount++;
+    statusText="normal repeat ignored while raw LoRa diagnostic RX is active";
+    return;
+  }
   if(!prefsReady||!validInputMessage(payload,len)){
     dropCount++; statusText="rejected unauthenticated/replayed endpoint packet"; return;
   }
@@ -381,7 +477,31 @@ static void repeatPacket(const uint8_t *payload,uint16_t len){
   sendLink(LINK_TX_END);
 }
 
-static void serviceRadio(){}
+static void serviceRadio(){
+  if(!dxDiagRx||!dxPacketReady||!radioOk||!dxRadio)return;
+  dxPacketReady=false;
+  size_t n=dxRadio->getPacketLength();
+  if(n==0||n>MAX_RF_FRAME){
+    statusText="diagnostic RX packet length rejected";
+    if(dxDiagRx)dxRadio->startReceive();
+    return;
+  }
+
+  uint8_t data[MAX_RF_FRAME];
+  int16_t r=dxRadio->readData(data,n);
+  dxDiagLastRssi=dxRadio->getRSSI();
+  dxDiagLastSnr=dxRadio->getSNR();
+  if(r==RADIOLIB_ERR_NONE){
+    dxDiagRxCount++;
+    dxDiagLastText=bytesToSafeText(data,n);
+    dxDiagLastHex=bytesToHex(data,n);
+    statusText="raw LoRa diagnostic packet received";
+  }else{
+    statusText="diagnostic RX read failed "+String(r);
+  }
+  if(dxDiagRx)dxRadio->startReceive();
+}
+
 static void handleLink(uint8_t type,const uint8_t *data,uint16_t len){
   if(type==LINK_DATA) repeatPacket(data,len);
 }
@@ -417,9 +537,9 @@ static void serviceLink(){
 }
 
 static String page(){
-  String h; h.reserve(8000);
+  String h; h.reserve(11000);
   bool linked=linkConnected();
-  h+=F("<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><meta http-equiv=refresh content=4><style>body{font-family:system-ui;background:#09101f;color:#edf2ff;margin:20px}.w{max-width:850px;margin:auto}.c{background:#141d32;border:1px solid #2c395b;border-radius:16px;padding:18px;margin:14px 0}.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px}label{display:block;color:#b6c3e5;margin-top:6px}input{width:100%;box-sizing:border-box;padding:9px;background:#0b1326;color:white;border:1px solid #405078;border-radius:8px}button{padding:10px 14px;margin-top:12px;border:0;border-radius:9px;background:#6678ff;color:white;font-weight:700}.ok{color:#72eda3}.bad{color:#ff8595}code{background:#091225;padding:2px 5px;border-radius:5px}</style><div class=w><h1>Holden RF Repeater</h1><div class=c><h2>Status</h2>");
+  h+=F("<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><meta http-equiv=refresh content=4><style>body{font-family:system-ui;background:#09101f;color:#edf2ff;margin:20px}.w{max-width:850px;margin:auto}.c{background:#141d32;border:1px solid #2c395b;border-radius:16px;padding:18px;margin:14px 0}.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px}label{display:block;color:#b6c3e5;margin-top:6px}input{width:100%;box-sizing:border-box;padding:9px;background:#0b1326;color:white;border:1px solid #405078;border-radius:8px}button{padding:10px 14px;margin-top:12px;border:0;border-radius:9px;background:#6678ff;color:white;font-weight:700}.ok{color:#72eda3}.bad{color:#ff8595}code{background:#091225;padding:2px 5px;border-radius:5px;overflow-wrap:anywhere}.warn{color:#ffd27a}</style><div class=w><h1>Holden RF Repeater</h1><div class=c><h2>Status</h2>");
   h+="<p>Board: <b>"+String(BOARD_NAME)+"</b></p>";
   h+="<p>Wi-Fi: <b class='"+String(apOk?"ok'>READY":"bad'>FAILED")+"</b></p>";
   h+="<p>Radio: <b class='"+String(radioOk?"ok'>READY":"bad'>NOT READY")+"</b></p>";
@@ -432,6 +552,7 @@ static String page(){
   h+="<p>S2 link: <b class='"+String(linked?"ok'>CONNECTED":"bad'>DISCONNECTED")+"</b></p>";
   h+="<p>Role: <b>UART &rarr; authenticate &rarr; DX-LR20 LoRa TX</b></p>";
   h+="<p>UART RX "+String(uartRxCount)+" / repeated "+String(txCount)+" / dropped "+String(dropCount)+"</p>";
+  h+="<p>DX diagnostic mode: <b>"+String(dxDiagRx?"RAW LoRa RX":"OFF / TX ready")+"</b></p>";
 #endif
   h+="<p>"+statusText+"</p></div>";
 #ifdef HOLDEN_TARGET_S2
@@ -455,7 +576,18 @@ static String page(){
   field("CR denominator","cr",String(cfg.cr));
   field("Sync word","sync",String(cfg.sync));
   field("TX dBm","pwr",String(cfg.power));
-  h+=F("</div><p>Copy the shared key and Network ID to both messenger endpoints. Receivers only display authenticated <b>repeated</b> LoRa frames from this C3.</p><button>Save + reboot</button></form></div>");
+  h+=F("</div><p>LoRa CRC is explicitly ON. Copy the shared key and Network ID to both messenger endpoints. Receivers only display authenticated <b>repeated</b> LoRa frames from this C3.</p><button>Save + reboot</button></form></div>");
+
+  h+=F("<div class=c><h2>DX-LR20 raw LoRa diagnostics</h2><p>This bypasses FSK, CC1101, Network ID, and authentication. It is only for proving DX-LR20 &harr; DX-LR20 LoRa communication.</p>");
+  h+="<p>Settings: <code>"+String(cfg.loraFreq,3)+" MHz / BW "+String(cfg.loraBw,1)+" / SF"+String(cfg.sf)+" / CR4/"+String(cfg.cr)+" / preamble "+String(cfg.preamble)+" / sync 0x"+String(cfg.sync,HEX)+" / CRC ON</code></p>";
+  h+="<p>Diagnostic TX: "+String(dxDiagTxCount)+" / RX: "+String(dxDiagRxCount)+"</p>";
+  h+="<p>Last RX RSSI: "+String(dxDiagLastRssi,1)+" dBm / SNR: "+String(dxDiagLastSnr,1)+" dB</p>";
+  h+="<p>Last RX text: <code>"+(dxDiagLastText.length()?dxDiagLastText:String("none"))+"</code></p>";
+  h+="<p>Last RX hex: <code>"+(dxDiagLastHex.length()?dxDiagLastHex:String("none"))+"</code></p>";
+  h+=F("<form method=post action=/diag-send><label>Raw LoRa test text</label><input name=msg value='C3-LORA-TEST' maxlength=180><button>Send raw LoRa test</button></form>");
+  h+=F("<form method=post action=/diag-rx><button>");
+  h+=dxDiagRx?"Stop raw LoRa RX":"Start raw LoRa RX";
+  h+=F("</button></form><p class=warn>While raw diagnostic RX is active, normal repeated packets are intentionally not transmitted. Stop diagnostic RX to return to normal repeater operation.</p></div>");
 #endif
   h+=F("<div class=c><form method=post action=/reset><button>Factory reset</button></form></div></div>");
   return h;
@@ -495,6 +627,18 @@ static void startAP(){
   WiFi.setSleep(false);
   server.on("/",HTTP_GET,[](){server.send(200,"text/html",page());});
   server.on("/save",HTTP_POST,handleSave);
+#ifndef HOLDEN_TARGET_S2
+  server.on("/diag-send",HTTP_POST,[](){
+    String msg=server.hasArg("msg")?server.arg("msg"):String("C3-LORA-TEST");
+    bool ok=sendDxDiag(msg);
+    server.send(ok?200:500,"text/plain",statusText);
+  });
+  server.on("/diag-rx",HTTP_POST,[](){
+    if(dxDiagRx) stopDxDiagRx(); else startDxDiagRx();
+    server.sendHeader("Location","/",true);
+    server.send(303,"text/plain",statusText);
+  });
+#endif
   server.on("/reset",HTTP_POST,[](){
     if(prefsReady)prefs.clear();
     server.send(200,"text/plain","Reset. Rebooting..."); delay(300); ESP.restart();
