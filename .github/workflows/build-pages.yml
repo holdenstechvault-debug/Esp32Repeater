@@ -44,9 +44,11 @@ jobs:
           cp .pio/build/seeed_xiao_esp32c3/partitions.bin web/firmware/c3/partitions.bin
           cp .pio/build/seeed_xiao_esp32c3/firmware.bin web/firmware/c3/firmware.bin
 
-          # ESP32-S2 needs its second-stage bootloader at 0x1000.
-          # Copy it into the web artifact so recovery installs can repair a bad/missing bootloader.
-          cp .pio/build/adafruit_feather_esp32s2/bootloader.bin web/firmware/s2/bootloader.bin
+          # PlatformIO's Adafruit S2 build does not always emit a standalone
+          # bootloader.bin. Keep Pages deploys working when it is absent.
+          if [ -f .pio/build/adafruit_feather_esp32s2/bootloader.bin ]; then
+            cp .pio/build/adafruit_feather_esp32s2/bootloader.bin web/firmware/s2/bootloader.bin
+          fi
           cp .pio/build/adafruit_feather_esp32s2/partitions.bin web/firmware/s2/partitions.bin
           cp .pio/build/adafruit_feather_esp32s2/firmware.bin web/firmware/s2/firmware.bin
 
@@ -62,6 +64,7 @@ jobs:
           test -n "$BOOT_APP0"
           cp "$BOOT_APP0" web/firmware/c3/boot_app0.bin
           cp "$BOOT_APP0" web/firmware/s2/boot_app0.bin
+          cp "$BOOT_APP0" web/firmware/heltec/boot_app0.bin
           cp "$BOOT_APP0" web/firmware/home/boot_app0.bin
 
       - uses: actions/configure-pages@v5
