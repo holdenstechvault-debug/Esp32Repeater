@@ -8,36 +8,51 @@
   <style>
     :root { color-scheme: dark; --esp-tools-button-color:#6d7dff; --esp-tools-button-text-color:#fff; --esp-tools-button-border-radius:12px; }
     body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#090f1d;color:#eef3ff;margin:0;padding:24px}
-    main{max-width:760px;margin:auto}.card{background:#141c31;border:1px solid #293553;border-radius:18px;padding:22px;margin:18px 0}
-    h1{font-size:2.1rem;margin-bottom:.2rem}h2{margin-top:0}.muted{color:#aab6d6}.warn{color:#ffd28a}
-    code{background:#0b1222;padding:3px 6px;border-radius:6px}li{margin:.55rem 0}
+    main{max-width:820px;margin:auto}.card{background:#141c31;border:1px solid #293553;border-radius:18px;padding:22px;margin:18px 0}
+    h1{font-size:2.1rem;margin-bottom:.2rem}h2{margin-top:0}.muted{color:#aab6d6}.warn{color:#ffd28a}.ok{color:#83efad}
+    code{background:#0b1222;padding:3px 6px;border-radius:6px}li{margin:.55rem 0}.boards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}.board{background:#0d1528;border:1px solid #293553;border-radius:14px;padding:16px}
   </style>
 </head>
 <body>
 <main>
   <h1>Holden LoRa Repeater</h1>
-  <p class="muted">Browser flasher for the grandparents' XIAO ESP32-C3 + DX-LR20 repeater.</p>
+  <p class="muted">Browser flasher for both repeater controller boards.</p>
 
   <section class="card">
-    <h2>Flash firmware</h2>
-    <p>Plug the XIAO ESP32-C3 into USB, use Chrome or Edge, then click Install.</p>
-    <esp-web-install-button manifest="manifest.json">
-      <button slot="activate">Install repeater firmware</button>
-      <span slot="unsupported">Use desktop Chrome or Edge with Web Serial support.</span>
-      <span slot="not-allowed">This page must be opened over HTTPS or localhost.</span>
-    </esp-web-install-button>
+    <h2>Choose the board you plugged in</h2>
+    <div class="boards">
+      <div class="board">
+        <h3>XIAO ESP32-C3</h3>
+        <p class="muted">Use this only for the Seeed XIAO ESP32-C3.</p>
+        <esp-web-install-button manifest="manifest.json">
+          <button slot="activate">Install C3 firmware</button>
+          <span slot="unsupported">Use desktop Chrome or Edge with Web Serial support.</span>
+          <span slot="not-allowed">This page must be opened over HTTPS or localhost.</span>
+        </esp-web-install-button>
+      </div>
+      <div class="board">
+        <h3>Adafruit ESP32-S2 Feather</h3>
+        <p class="muted">Use this only for the ESP32-S2 Feather.</p>
+        <esp-web-install-button manifest="manifest-s2.json">
+          <button slot="activate">Install S2 firmware</button>
+          <span slot="unsupported">Use desktop Chrome or Edge with Web Serial support.</span>
+          <span slot="not-allowed">This page must be opened over HTTPS or localhost.</span>
+        </esp-web-install-button>
+      </div>
+    </div>
   </section>
 
   <section class="card">
     <h2>After flashing</h2>
     <ol>
-      <li>Connect the DX-LR20 and its antenna <strong>before transmitting</strong>.</li>
-      <li>Power/reboot the XIAO.</li>
-      <li>Join Wi-Fi <code>HOLDEN-LORA-xxxxxx</code> with password <code>repeater-setup</code>.</li>
+      <li>Reboot the board after the installer finishes.</li>
+      <li>Look for <code>HOLDEN-LORA-C3-xxxxxx</code> or <code>HOLDEN-LORA-S2-xxxxxx</code>.</li>
+      <li>Connect with password <code>repeater-setup</code>.</li>
       <li>Open <code>http://192.168.4.1</code>.</li>
-      <li>Copy the generated 256-bit key and use that same key on the home and girlfriend endpoints.</li>
+      <li>Then connect/configure the DX-LR20. The setup AP now starts <strong>before</strong> radio initialization.</li>
     </ol>
-    <p class="warn">The radio pin assignments are editable in the setup page, so the firmware does not permanently lock you to one adapter-board header mapping.</p>
+    <p class="ok">If the DX-LR20 is missing or wired wrong, the setup Wi-Fi should still remain visible.</p>
+    <p class="warn">Always attach an antenna before allowing the DX-LR20 to transmit.</p>
   </section>
 </main>
 </body>
