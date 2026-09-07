@@ -1,0 +1,16 @@
+{
+  "name": "Holden Messenger - Home XIAO C3 + DX-LR20",
+  "version": "0.1.0",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-C3",
+      "parts": [
+        { "path": "firmware/home/bootloader.bin", "offset": 0 },
+        { "path": "firmware/home/partitions.bin", "offset": 32768 },
+        { "path": "firmware/home/boot_app0.bin", "offset": 57344 },
+        { "path": "firmware/home/firmware.bin", "offset": 65536 }
+      ]
+    }
+  ]
+}

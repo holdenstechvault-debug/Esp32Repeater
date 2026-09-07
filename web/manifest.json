@@ -1,6 +1,6 @@
 {
-  "name": "Holden LoRa Repeater - XIAO ESP32-C3",
-  "version": "0.2.0",
+  "name": "Holden Repeater - XIAO ESP32-C3",
+  "version": "0.4.0",
   "new_install_prompt_erase": true,
   "builds": [
     {

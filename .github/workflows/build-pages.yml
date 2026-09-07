@@ -24,26 +24,43 @@ jobs:
           python-version: '3.13'
       - name: Install PlatformIO
         run: pip install platformio
-      - name: Apply source compatibility fix
-        run: sed -i 's/\bLINK_MAX\b/UART_LINK_MAX/g' src/repeater_v2.cpp
-      - name: Build XIAO ESP32-C3 firmware
+
+      - name: Build repeater C3
         run: pio run -e seeed_xiao_esp32c3
-      - name: Build Adafruit ESP32-S2 Feather firmware
+      - name: Build repeater S2
         run: pio run -e adafruit_feather_esp32s2
+      - name: Build Heltec V3 messenger
+        run: pio run -e heltec_wifi_lora_32_V3
+      - name: Build home DX-LR20 messenger
+        run: pio run -e home_xiao_esp32c3
+
       - name: Copy flash parts into website
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p web/firmware/c3 web/firmware/s2
+          mkdir -p web/firmware/c3 web/firmware/s2 web/firmware/heltec web/firmware/home
+
           cp .pio/build/seeed_xiao_esp32c3/bootloader.bin web/firmware/c3/bootloader.bin
           cp .pio/build/seeed_xiao_esp32c3/partitions.bin web/firmware/c3/partitions.bin
           cp .pio/build/seeed_xiao_esp32c3/firmware.bin web/firmware/c3/firmware.bin
+
           cp .pio/build/adafruit_feather_esp32s2/partitions.bin web/firmware/s2/partitions.bin
           cp .pio/build/adafruit_feather_esp32s2/firmware.bin web/firmware/s2/firmware.bin
-          BOOT_APP0=$(find "$HOME/.platformio" -name boot_app0.bin | head -n 1)
+
+          cp .pio/build/heltec_wifi_lora_32_V3/bootloader.bin web/firmware/heltec/bootloader.bin
+          cp .pio/build/heltec_wifi_lora_32_V3/partitions.bin web/firmware/heltec/partitions.bin
+          cp .pio/build/heltec_wifi_lora_32_V3/firmware.bin web/firmware/heltec/firmware.bin
+
+          cp .pio/build/home_xiao_esp32c3/bootloader.bin web/firmware/home/bootloader.bin
+          cp .pio/build/home_xiao_esp32c3/partitions.bin web/firmware/home/partitions.bin
+          cp .pio/build/home_xiao_esp32c3/firmware.bin web/firmware/home/firmware.bin
+
+          BOOT_APP0=$(find "$HOME/.platformio" -path '*/framework-arduinoespressif32/tools/partitions/boot_app0.bin' | head -n 1)
           test -n "$BOOT_APP0"
           cp "$BOOT_APP0" web/firmware/c3/boot_app0.bin
           cp "$BOOT_APP0" web/firmware/s2/boot_app0.bin
+          cp "$BOOT_APP0" web/firmware/home/boot_app0.bin
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

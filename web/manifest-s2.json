@@ -1,6 +1,6 @@
 {
-  "name": "Holden LoRa Repeater - Adafruit ESP32-S2 Feather",
-  "version": "0.2.1",
+  "name": "Holden Repeater - Adafruit ESP32-S2 Feather",
+  "version": "0.4.0",
   "new_install_prompt_erase": false,
   "builds": [
     {

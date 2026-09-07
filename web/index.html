@@ -3,40 +3,63 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Holden LoRa Repeater Flasher</title>
+  <title>Holden Repeater + Messenger Flasher</title>
   <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
   <style>
-    :root { color-scheme: dark; --esp-tools-button-color:#6d7dff; --esp-tools-button-text-color:#fff; --esp-tools-button-border-radius:12px; }
-    body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#090f1d;color:#eef3ff;margin:0;padding:24px}
-    main{max-width:820px;margin:auto}.card{background:#141c31;border:1px solid #293553;border-radius:18px;padding:22px;margin:18px 0}
-    h1{font-size:2.1rem;margin-bottom:.2rem}h2{margin-top:0}.muted{color:#aab6d6}.warn{color:#ffd28a}.ok{color:#83efad}
-    code{background:#0b1222;padding:3px 6px;border-radius:6px}li{margin:.55rem 0}.boards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}.board{background:#0d1528;border:1px solid #293553;border-radius:14px;padding:16px}
+    :root{color-scheme:dark;--esp-tools-button-color:#677aff;--esp-tools-button-text-color:#fff;--esp-tools-button-border-radius:12px}
+    body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#08101e;color:#edf3ff;margin:0;padding:22px}
+    main{max-width:940px;margin:auto}.card{background:#131d31;border:1px solid #2a3958;border-radius:18px;padding:20px;margin:16px 0}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px}.board{background:#0d1629;border:1px solid #2c3c5e;border-radius:15px;padding:16px}
+    h1{font-size:2rem;margin:.2rem 0}h2{margin-top:0}.muted{color:#a5b4d5}.ok{color:#79eea7}.warn{color:#ffd17e}code{background:#091326;padding:3px 6px;border-radius:6px}li{margin:.5rem 0}
   </style>
 </head>
-<body>
-<main>
-  <h1>Holden LoRa Repeater</h1>
-  <p class="muted">Browser flasher for both repeater controller boards.</p>
+<body><main>
+  <h1>Holden RF Repeater + Messenger</h1>
+  <p class="muted">Flash the two repeater boards and either messenger endpoint from Chrome or Edge.</p>
 
   <section class="card">
-    <h2>Choose the board you plugged in</h2>
-    <div class="boards">
+    <h2>Repeater boards</h2>
+    <div class="grid">
       <div class="board">
-        <h3>XIAO ESP32-C3</h3>
-        <p class="muted">Use this only for the Seeed XIAO ESP32-C3.</p>
+        <h3>XIAO ESP32-C3 + DX-LR20</h3>
+        <p class="muted">Repeater output side. Authenticates endpoint packets and retransmits them as LoRa.</p>
         <esp-web-install-button manifest="manifest.json">
-          <button slot="activate">Install C3 firmware</button>
-          <span slot="unsupported">Use desktop Chrome or Edge with Web Serial support.</span>
-          <span slot="not-allowed">This page must be opened over HTTPS or localhost.</span>
+          <button slot="activate">Install repeater C3</button>
+          <span slot="unsupported">Use desktop Chrome or Edge with Web Serial.</span>
+          <span slot="not-allowed">Open this page over HTTPS.</span>
         </esp-web-install-button>
       </div>
       <div class="board">
-        <h3>Adafruit ESP32-S2 Feather</h3>
-        <p class="muted">Use this only for the ESP32-S2 Feather.</p>
+        <h3>Adafruit ESP32-S2 Feather + CC1101</h3>
+        <p class="muted">Repeater receive side. The setup Wi-Fi now starts before UART, SPI, Preferences or CC1101 initialization.</p>
         <esp-web-install-button manifest="manifest-s2.json">
-          <button slot="activate">Install S2 firmware</button>
-          <span slot="unsupported">Use desktop Chrome or Edge with Web Serial support.</span>
-          <span slot="not-allowed">This page must be opened over HTTPS or localhost.</span>
+          <button slot="activate">Install repeater S2</button>
+          <span slot="unsupported">Use desktop Chrome or Edge with Web Serial.</span>
+          <span slot="not-allowed">Open this page over HTTPS.</span>
+        </esp-web-install-button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Messenger endpoints</h2>
+    <div class="grid">
+      <div class="board">
+        <h3>Heltec WiFi LoRa 32 V3</h3>
+        <p class="muted">Uses the built-in SX1262. Sends FSK to the repeater and listens for the authenticated LoRa repeat.</p>
+        <esp-web-install-button manifest="manifest-heltec.json">
+          <button slot="activate">Install Heltec V3 messenger</button>
+          <span slot="unsupported">Use desktop Chrome or Edge with Web Serial.</span>
+          <span slot="not-allowed">Open this page over HTTPS.</span>
+        </esp-web-install-button>
+      </div>
+      <div class="board">
+        <h3>Home XIAO ESP32-C3 + DX-LR20</h3>
+        <p class="muted">Browser messenger for the DX-LR20 node at home. Uses the same D0-D5 / D8-D10 radio wiring.</p>
+        <esp-web-install-button manifest="manifest-home.json">
+          <button slot="activate">Install home messenger</button>
+          <span slot="unsupported">Use desktop Chrome or Edge with Web Serial.</span>
+          <span slot="not-allowed">Open this page over HTTPS.</span>
         </esp-web-install-button>
       </div>
     </div>
@@ -45,15 +68,13 @@
   <section class="card">
     <h2>After flashing</h2>
     <ol>
-      <li>Reboot the board after the installer finishes.</li>
-      <li>Look for <code>HOLDEN-LORA-C3-xxxxxx</code> or <code>HOLDEN-LORA-S2-xxxxxx</code>.</li>
-      <li>Connect with password <code>repeater-setup</code>.</li>
-      <li>Open <code>http://192.168.4.1</code>.</li>
-      <li>Then connect/configure the DX-LR20. The setup AP now starts <strong>before</strong> radio initialization.</li>
+      <li>Repeater C3 Wi-Fi: <code>HOLDEN-LORA-C3-xxxxxx</code>, password <code>repeater-setup</code>, then open <code>http://192.168.4.1</code>.</li>
+      <li>Repeater S2 Wi-Fi: <code>HOLDEN-LORA-S2-xxxxxx</code>, same password and address. Its AP starts before any CC1101 or UART work.</li>
+      <li>Messenger Wi-Fi: <code>HOLDEN-MSG-HELTEC-xxxxxx</code> or <code>HOLDEN-MSG-HOME-xxxxxx</code>, password <code>holden-messenger</code>, then open <code>http://192.168.4.1</code>.</li>
+      <li>Copy the C3 repeater's <b>Shared 256-bit key</b> and <b>Network ID</b> into both messenger endpoints.</li>
+      <li>Set the messenger FSK uplink frequency to the same value as the S2 CC1101. Default is 915 MHz and can be changed from the setup pages.</li>
     </ol>
-    <p class="ok">If the DX-LR20 is missing or wired wrong, the setup Wi-Fi should still remain visible.</p>
-    <p class="warn">Always attach an antenna before allowing the DX-LR20 to transmit.</p>
+    <p class="ok"><b>Repeated-only display:</b> endpoint message lists only accept the C3's authenticated <code>HL</code> LoRa repeat envelope. Direct FSK packets are never added to the message list.</p>
+    <p class="warn">Attach the correct antenna before transmitting. Make sure the CC1101 and DX-LR20 hardware/antennas support the frequency you configure.</p>
   </section>
-</main>
-</body>
-</html>
+</main></body></html>
