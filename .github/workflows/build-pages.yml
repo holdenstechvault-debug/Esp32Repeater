@@ -26,17 +26,23 @@ jobs:
         run: pip install platformio
       - name: Build XIAO ESP32-C3 firmware
         run: pio run -e seeed_xiao_esp32c3
+      - name: Build Adafruit ESP32-S2 Feather firmware
+        run: pio run -e adafruit_feather_esp32s2
       - name: Copy flash parts into website
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p web/firmware
-          cp .pio/build/seeed_xiao_esp32c3/bootloader.bin web/firmware/bootloader.bin
-          cp .pio/build/seeed_xiao_esp32c3/partitions.bin web/firmware/partitions.bin
-          cp .pio/build/seeed_xiao_esp32c3/firmware.bin web/firmware/firmware.bin
+          mkdir -p web/firmware/c3 web/firmware/s2
+          cp .pio/build/seeed_xiao_esp32c3/bootloader.bin web/firmware/c3/bootloader.bin
+          cp .pio/build/seeed_xiao_esp32c3/partitions.bin web/firmware/c3/partitions.bin
+          cp .pio/build/seeed_xiao_esp32c3/firmware.bin web/firmware/c3/firmware.bin
+          cp .pio/build/adafruit_feather_esp32s2/bootloader.bin web/firmware/s2/bootloader.bin
+          cp .pio/build/adafruit_feather_esp32s2/partitions.bin web/firmware/s2/partitions.bin
+          cp .pio/build/adafruit_feather_esp32s2/firmware.bin web/firmware/s2/firmware.bin
           BOOT_APP0=$(find "$HOME/.platformio" -name boot_app0.bin | head -n 1)
           test -n "$BOOT_APP0"
-          cp "$BOOT_APP0" web/firmware/boot_app0.bin
+          cp "$BOOT_APP0" web/firmware/c3/boot_app0.bin
+          cp "$BOOT_APP0" web/firmware/s2/boot_app0.bin
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
