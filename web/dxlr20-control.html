@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DX-LR20 USB Serial Control</title>
+  <style>
+    :root{color-scheme:dark}
+    *{box-sizing:border-box}
+    body{margin:0;background:#08101e;color:#edf3ff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;padding:20px}
+    main{max-width:960px;margin:auto}
+    .card{background:#131d31;border:1px solid #2a3958;border-radius:18px;padding:18px;margin:14px 0}
+    h1,h2{margin-top:0}.muted{color:#a5b4d5}.ok{color:#79eea7}.warn{color:#ffd17e}
+    code{background:#091326;padding:2px 6px;border-radius:6px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0}
+    button,input,select,textarea{font:inherit}
+    button{background:#677aff;color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}
+    button.secondary{background:#283654}button.danger{background:#7a3341}button:disabled{opacity:.5;cursor:not-allowed}
+    input,select,textarea{background:#091326;color:#edf3ff;border:1px solid #334567;border-radius:9px;padding:9px}
+    #log{width:100%;min-height:330px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;overflow:auto}
+    #tx{flex:1;min-width:240px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#75819a;margin-right:6px}.dot.on{background:#79eea7}
+    label{display:flex;gap:6px;align-items:center}.pill{background:#091326;border:1px solid #334567;border-radius:999px;padding:7px 10px}
+  </style>
+</head>
+<body><main>
+  <h1>DX-LR20 USB Serial Control</h1>
+  <p class="muted">Direct browser control for the DX-LR20 development kit through its CH340 USB serial adapter. Your Mac identifies the adapter as WCH <code>1A86:7523</code> and the terminal device as <code>/dev/cu.usbserial-120</code>.</p>
+
+  <section class="card">
+    <h2>Connection</h2>
+    <div class="row">
+      <button id="connect">Connect DX-LR20</button>
+      <button id="disconnect" class="danger" disabled>Disconnect</button>
+      <label>Baud <select id="baud"><option selected>9600</option><option>19200</option><option>38400</option><option>57600</option><option>115200</option></select></label>
+      <span class="pill"><span id="dot" class="dot"></span><span id="status">Disconnected</span></span>
+    </div>
+    <div class="row muted">
+      <span id="portInfo">No port selected</span>
+    </div>
+    <p class="muted">Use desktop Chrome or Edge. When the chooser opens, select the USB Serial / CH340 device.</p>
+  </section>
+
+  <section class="card">
+    <h2>Serial control lines</h2>
+    <div class="row">
+      <label><input id="dtr" type="checkbox" disabled> DTR</label>
+      <label><input id="rts" type="checkbox" disabled> RTS</label>
+      <button id="breakBtn" class="secondary" disabled>Pulse BREAK</button>
+      <button id="pulseDtr" class="secondary" disabled>Pulse DTR</button>
+      <button id="pulseRts" class="secondary" disabled>Pulse RTS</button>
+    </div>
+    <p class="muted">These are the actual USB-serial hardware control lines. Whether DTR/RTS are wired to RESET/BOOT on your particular DX-LR20 dev board depends on its board wiring.</p>
+  </section>
+
+  <section class="card">
+    <h2>Receive</h2>
+    <textarea id="log" readonly spellcheck="false" placeholder="Incoming serial data appears here..."></textarea>
+    <div class="row">
+      <button id="clear" class="secondary">Clear</button>
+      <label><input id="timestamps" type="checkbox"> timestamps</label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Transmit</h2>
+    <div class="row">
+      <input id="tx" placeholder="Type serial data..." autocomplete="off">
+      <label>Ending <select id="ending"><option value="none" selected>None</option><option value="lf">LF</option><option value="cr">CR</option><option value="crlf">CRLF</option></select></label>
+      <button id="send" disabled>Send text</button>
+    </div>
+    <div class="row">
+      <input id="hex" style="flex:1;min-width:240px" placeholder="Hex bytes, e.g. 48 65 6C 6C 6F">
+      <button id="sendHex" disabled>Send hex</button>
+    </div>
+    <p class="muted">The text sender writes exactly what you type plus the selected line ending. Hex mode lets us send exact binary command frames if the DX-LR20 firmware uses them.</p>
+  </section>
+
+  <p><a href="./" style="color:#8fc8ff">← Back to web flasher</a></p>
+</main>
+<script>
+(() => {
+  const $=id=>document.getElementById(id);
+  const connect=$('connect'), disconnect=$('disconnect'), baud=$('baud'), status=$('status'), dot=$('dot'), portInfo=$('portInfo');
+  const log=$('log'), clear=$('clear'), tx=$('tx'), ending=$('ending'), send=$('send'), hex=$('hex'), sendHex=$('sendHex');
+  const dtr=$('dtr'), rts=$('rts'), breakBtn=$('breakBtn'), pulseDtr=$('pulseDtr'), pulseRts=$('pulseRts'), timestamps=$('timestamps');
+  let port=null, reader=null, reading=false;
+
+  function append(s){
+    if(timestamps.checked){
+      const now=new Date().toLocaleTimeString();
+      s=s.replace(/(^|\n)(?=\S)/g, `$1[${now}] `);
+    }
+    log.value+=s; log.scrollTop=log.scrollHeight;
+  }
+  function state(on,msg){
+    connect.disabled=on; disconnect.disabled=!on; baud.disabled=on; send.disabled=!on; sendHex.disabled=!on;
+    dtr.disabled=!on; rts.disabled=!on; breakBtn.disabled=!on; pulseDtr.disabled=!on; pulseRts.disabled=!on;
+    dot.classList.toggle('on',on); status.textContent=msg||(on?'Connected':'Disconnected');
+  }
+  async function readLoop(){
+    const dec=new TextDecoder(); reading=true;
+    try{
+      while(port&&port.readable&&reading){
+        reader=port.readable.getReader();
+        try{
+          while(reading){const {value,done}=await reader.read(); if(done)break; if(value)append(dec.decode(value,{stream:true}));}
+        }finally{reader.releaseLock();reader=null;}
+      }
+    }catch(e){append(`\n[read error: ${e.message}]\n`);}
+  }
+  async function setLines(){
+    if(!port)return;
+    try{await port.setSignals({dataTerminalReady:dtr.checked,requestToSend:rts.checked});}
+    catch(e){append(`\n[signal error: ${e.message}]\n`);}
+  }
+  async function pulse(which){
+    if(!port)return;
+    try{
+      if(which==='dtr'){await port.setSignals({dataTerminalReady:true});await new Promise(r=>setTimeout(r,150));await port.setSignals({dataTerminalReady:false});dtr.checked=false;}
+      if(which==='rts'){await port.setSignals({requestToSend:true});await new Promise(r=>setTimeout(r,150));await port.setSignals({requestToSend:false});rts.checked=false;}
+      if(which==='break'){await port.setSignals({break:true});await new Promise(r=>setTimeout(r,150));await port.setSignals({break:false});}
+    }catch(e){append(`\n[signal pulse error: ${e.message}]\n`);}
+  }
+  async function doConnect(){
+    if(!('serial' in navigator)){alert('Web Serial is not available here. Use desktop Chrome or Edge.');return;}
+    try{
+      port=await navigator.serial.requestPort();
+      const info=port.getInfo?port.getInfo():{};
+      const vid=info.usbVendorId!=null?info.usbVendorId.toString(16).padStart(4,'0').toUpperCase():'????';
+      const pid=info.usbProductId!=null?info.usbProductId.toString(16).padStart(4,'0').toUpperCase():'????';
+      portInfo.textContent=`USB VID:PID ${vid}:${pid}${vid==='1A86'&&pid==='7523'?' — CH340/CH341 family':''}`;
+      await port.open({baudRate:Number(baud.value),dataBits:8,stopBits:1,parity:'none',flowControl:'none'});
+      state(true,`Connected @ ${baud.value}`);append(`\n[connected ${vid}:${pid} @ ${baud.value}]\n`);readLoop();
+    }catch(e){port=null;state(false,'Connection failed');append(`\n[connect error: ${e.message}]\n`);}
+  }
+  async function doDisconnect(){
+    reading=false;try{if(reader)await reader.cancel();}catch(e){}
+    try{if(port)await port.close();}catch(e){append(`\n[close error: ${e.message}]\n`);}
+    port=null;reader=null;state(false,'Disconnected');append('\n[disconnected]\n');
+  }
+  async function writeBytes(bytes,label){
+    if(!port||!port.writable)return;
+    const w=port.writable.getWriter();
+    try{await w.write(bytes);append(`\n> ${label}\n`);}catch(e){append(`\n[write error: ${e.message}]\n`);}finally{w.releaseLock();}
+  }
+  async function sendText(){
+    if(!tx.value)return;let s=tx.value;
+    if(ending.value==='lf')s+='\n';else if(ending.value==='cr')s+='\r';else if(ending.value==='crlf')s+='\r\n';
+    await writeBytes(new TextEncoder().encode(s),tx.value);tx.value='';tx.focus();
+  }
+  async function sendHexData(){
+    const cleaned=hex.value.trim().replace(/0x/gi,'').replace(/[,;:-]/g,' ');
+    if(!cleaned)return;
+    const parts=cleaned.split(/\s+/);const bytes=[];
+    for(const p of parts){if(!/^[0-9a-fA-F]{1,2}$/.test(p)){append('\n[invalid hex]\n');return;}bytes.push(parseInt(p,16));}
+    await writeBytes(new Uint8Array(bytes),bytes.map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' '));
+  }
+  connect.onclick=doConnect;disconnect.onclick=doDisconnect;clear.onclick=()=>log.value='';send.onclick=sendText;sendHex.onclick=sendHexData;
+  tx.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendText();}});
+  dtr.onchange=setLines;rts.onchange=setLines;breakBtn.onclick=()=>pulse('break');pulseDtr.onclick=()=>pulse('dtr');pulseRts.onclick=()=>pulse('rts');
+})();
+</script>
+</body>
+</html>
