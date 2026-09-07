@@ -1,13 +1,14 @@
 {
   "name": "Holden Messenger - Heltec WiFi LoRa 32 V3",
-  "version": "0.1.0",
-  "new_install_prompt_erase": false,
+  "version": "0.2.0",
+  "new_install_prompt_erase": true,
   "builds": [
     {
       "chipFamily": "ESP32-S3",
       "parts": [
         { "path": "firmware/heltec/bootloader.bin", "offset": 0 },
         { "path": "firmware/heltec/partitions.bin", "offset": 32768 },
+        { "path": "firmware/heltec/boot_app0.bin", "offset": 57344 },
         { "path": "firmware/heltec/firmware.bin", "offset": 65536 }
       ]
     }
